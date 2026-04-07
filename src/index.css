@@ -1,0 +1,89 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: light;
+  background-color: #f8fafc;
+  color: #0f172a;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@layer base {
+  body {
+    @apply bg-background text-textColor-main overflow-hidden;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-bold tracking-tight text-textColor-main;
+  }
+}
+
+@layer components {
+  /* Dotted background pattern */
+  .dot-pattern {
+    background-color: transparent;
+    background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+    background-size: 20px 20px;
+  }
+
+  .card {
+    @apply bg-surface border border-slate-200 rounded-3xl shadow-sm;
+  }
+
+  .card-hover {
+    @apply hover:shadow-md hover:border-slate-300 transition-all duration-300;
+  }
+
+  .btn-primary {
+    @apply bg-primary hover:bg-primary-dark text-white px-4 py-2 rounded-xl font-semibold transition-colors shadow-sm;
+  }
+
+  .btn-secondary {
+    @apply bg-white border border-slate-200 hover:bg-slate-50 text-textColor-main px-4 py-2 rounded-xl font-semibold transition-colors shadow-sm;
+  }
+
+  .sidebar-link {
+    @apply flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-200 text-textColor-muted hover:text-textColor-main hover:bg-slate-100 font-medium text-sm;
+  }
+
+  .sidebar-link-active {
+    @apply text-primary font-bold bg-primary-bg/50;
+  }
+
+  .status-badge {
+    @apply px-2.5 py-0.5 rounded-full text-xs font-bold tracking-wide;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.animate-in {
+  animation: fade-up 0.3s ease-out forwards;
+}
+
