@@ -9,16 +9,15 @@ const TimeTracking = () => {
   const [note, setNote] = useState('');
   const [filterMember, setFilterMember] = useState('all');
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!selectedTask || !hours || isNaN(hours) || Number(hours) <= 0) return;
-    addTimeLog({ taskId: selectedTask, hours: Number(hours), note, userId: activeUser.id });
+    await addTimeLog({ taskId: selectedTask, hours: Number(hours), note, userId: activeUser.id });
     setHours('');
     setNote('');
     setSelectedTask('');
   };
 
   const filteredLogs = (timeLogs || []).filter(l => filterMember === 'all' || l.userId === filterMember);
-
   const totalHours = filteredLogs.reduce((sum, l) => sum + l.hours, 0);
 
   const getTaskTitle = (id) => tasks.find(t => t.id === id)?.title || 'Unknown Task';
@@ -26,15 +25,26 @@ const TimeTracking = () => {
     const task = tasks.find(t => t.id === taskId);
     return projects.find(p => p.id === task?.projectId)?.title || '—';
   };
-  const getMemberName = (id) => members.find(m => m.id === id)?.name || 'Unknown';
+  const getMember = (id) => members.find(m => m.id === id);
 
-  // Per-member workload summary
-  const memberSummary = members.map(m => ({
-    ...m,
-    totalHours: (timeLogs || []).filter(l => l.userId === m.id).reduce((s, l) => s + l.hours, 0)
-  })).filter(m => m.totalHours > 0);
+  // Per-member workload from DB logs
+  const memberSummary = members
+    .map(m => ({
+      ...m,
+      totalHours: (timeLogs || []).filter(l => l.userId === m.id).reduce((s, l) => s + l.hours, 0)
+    }))
+    .filter(m => m.totalHours > 0)
+    .sort((a, b) => b.totalHours - a.totalHours);
 
   const maxHours = Math.max(...memberSummary.map(m => m.totalHours), 1);
+
+  const MemberAvatar = ({ id, size = 'w-6 h-6' }) => {
+    const m = getMember(id);
+    if (!m) return null;
+    return m.avatar
+      ? <img src={m.avatar} className={`${size} rounded-full object-cover`} alt={m.name} />
+      : <div className={`${size} rounded-full bg-primary-bg flex items-center justify-center text-[10px] font-bold text-primary`}>{m.name?.charAt(0).toUpperCase()}</div>;
+  };
 
   return (
     <div className="p-8 animate-in space-y-6">
@@ -54,7 +64,9 @@ const TimeTracking = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Log Time Form */}
         <div className="card p-6 border border-slate-200 space-y-4">
-          <h3 className="font-bold text-textColor-main flex items-center gap-2"><Clock size={16} className="text-primary" /> Log Time</h3>
+          <h3 className="font-bold text-textColor-main flex items-center gap-2">
+            <Clock size={16} className="text-primary" /> Log Time
+          </h3>
           <div>
             <label className="text-xs font-bold text-textColor-muted uppercase tracking-widest mb-1 block">Task</label>
             <select
@@ -63,9 +75,10 @@ const TimeTracking = () => {
               className="w-full bg-background border border-slate-200 rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-primary/50 font-medium"
             >
               <option value="">Select a task...</option>
-              {tasks.map(t => (
-                <option key={t.id} value={t.id}>{t.title}</option>
-              ))}
+              {tasks.map(t => {
+                const proj = projects.find(p => p.id === t.projectId);
+                return <option key={t.id} value={t.id}>{t.title} {proj ? `(${proj.title})` : ''}</option>;
+              })}
             </select>
           </div>
           <div>
@@ -99,9 +112,11 @@ const TimeTracking = () => {
           </button>
         </div>
 
-        {/* Workload per member */}
+        {/* Team Workload */}
         <div className="card p-6 border border-slate-200 space-y-4 lg:col-span-2">
-          <h3 className="font-bold text-textColor-main flex items-center gap-2"><Timer size={16} className="text-primary" /> Team Workload</h3>
+          <h3 className="font-bold text-textColor-main flex items-center gap-2">
+            <Timer size={16} className="text-primary" /> Team Workload
+          </h3>
           {memberSummary.length === 0 ? (
             <p className="text-textColor-muted text-sm text-center py-8">No time logged yet.</p>
           ) : (
@@ -109,14 +124,14 @@ const TimeTracking = () => {
               <div key={m.id} className="space-y-1">
                 <div className="flex justify-between text-sm">
                   <div className="flex items-center gap-2">
-                    <img src={m.avatar} className="w-6 h-6 rounded-full" alt={m.name} />
+                    <MemberAvatar id={m.id} />
                     <span className="font-semibold text-textColor-main">{m.name}</span>
                   </div>
                   <span className="font-bold text-primary">{m.totalHours.toFixed(1)}h</span>
                 </div>
                 <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-primary rounded-full transition-all"
+                    className="h-full bg-primary rounded-full transition-all duration-500"
                     style={{ width: `${(m.totalHours / maxHours) * 100}%` }}
                   />
                 </div>
@@ -129,7 +144,9 @@ const TimeTracking = () => {
       {/* Time Logs Table */}
       <div className="card border border-slate-200 overflow-hidden">
         <div className="flex items-center justify-between p-4 border-b border-slate-200 bg-slate-50">
-          <h3 className="font-bold text-textColor-main">Time Logs</h3>
+          <h3 className="font-bold text-textColor-main">
+            Time Logs <span className="text-xs font-normal text-textColor-muted ml-1">({filteredLogs.length} entries)</span>
+          </h3>
           <select
             value={filterMember}
             onChange={e => setFilterMember(e.target.value)}
@@ -143,23 +160,34 @@ const TimeTracking = () => {
           {filteredLogs.length === 0 ? (
             <div className="text-center py-10 text-textColor-muted text-sm">No time logs found.</div>
           ) : (
-            filteredLogs.map((log, i) => (
-              <div key={i} className="flex items-center justify-between px-6 py-3 hover:bg-slate-50 transition-colors">
-                <div className="flex-1">
-                  <p className="font-semibold text-textColor-main text-sm">{getTaskTitle(log.taskId)}</p>
-                  <p className="text-xs text-textColor-muted">{getProjectName(log.taskId)} · {getMemberName(log.userId)}{log.note ? ` · ${log.note}` : ''}</p>
+            filteredLogs.map(log => {
+              const member = getMember(log.userId);
+              return (
+                <div key={log.id} className="flex items-center justify-between px-6 py-3 hover:bg-slate-50 transition-colors">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <MemberAvatar id={log.userId} size="w-7 h-7" />
+                    <div className="min-w-0">
+                      <p className="font-semibold text-textColor-main text-sm truncate">{getTaskTitle(log.taskId)}</p>
+                      <p className="text-xs text-textColor-muted">
+                        {getProjectName(log.taskId)} · {member?.name || 'Unknown'}{log.note ? ` · ${log.note}` : ''}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4 shrink-0">
+                    <span className="font-bold text-primary text-sm">{log.hours}h</span>
+                    <span className="text-xs text-textColor-muted">{new Date(log.date).toLocaleDateString()}</span>
+                    {log.userId === activeUser?.id && (
+                      <button
+                        onClick={() => deleteTimeLog(log.id)}
+                        className="p-1.5 text-textColor-muted hover:text-rose-500 hover:bg-rose-50 rounded transition-colors"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-4">
-                  <span className="font-bold text-primary text-sm">{log.hours}h</span>
-                  <span className="text-xs text-textColor-muted">{new Date(log.date).toLocaleDateString()}</span>
-                  {log.userId === activeUser?.id && (
-                    <button onClick={() => deleteTimeLog(i)} className="p-1.5 text-textColor-muted hover:text-rose-500 hover:bg-rose-50 rounded transition-colors">
-                      <Trash2 size={14} />
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </div>

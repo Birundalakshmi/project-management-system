@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  LayoutDashboard, CheckSquare, Users, Bell, Search,
+  LayoutDashboard, Users, Bell,
   FolderOpen, LogOut, Moon, Sun, User, BarChart2,
   CalendarDays, Timer, GanttChartSquare
 } from 'lucide-react';
@@ -10,7 +10,6 @@ import KanbanBoard from '../components/KanbanBoard';
 import TeamManagement from '../components/TeamManagement';
 import Projects from '../pages/Projects';
 import Notifications from '../pages/Notifications';
-import MyTasks from '../pages/MyTasks';
 import ProfileSettings from '../pages/ProfileSettings';
 import GanttChart from '../pages/GanttChart';
 import CalendarView from '../pages/CalendarView';
@@ -40,7 +39,6 @@ const SidebarItem = ({ icon: Icon, label, active, onClick, badge }) => (
 const DashboardLayout = ({ session, onLogout }) => {
   const [activeTab, setActiveTab] = useState('Dashboard');
   const [selectedProjectId, setSelectedProjectId] = useState(null);
-  const [searchQuery, setSearchQuery] = useState('');
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('darkMode') === 'true');
   const { activeUser, notifications, loading, fetchError, retryFetch } = useProjectData();
   const unreadCount = notifications.filter(n => !n.read).length;
@@ -96,17 +94,6 @@ const DashboardLayout = ({ session, onLogout }) => {
               {darkMode ? <Sun size={15} /> : <Moon size={15} />}
             </button>
           </div>
-          <div className="mt-4 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-textColor-light" size={14} />
-            <input
-              type="text"
-              placeholder="Search tasks..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && searchQuery.trim() && setActiveTab('Tasks')}
-              className="w-full bg-background border border-slate-200 rounded-lg py-2 pl-8 pr-3 text-xs focus:outline-none focus:border-primary/50 transition-all text-textColor-main placeholder:text-textColor-light"
-            />
-          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto px-2 scrollbar-hide pb-4">
@@ -119,7 +106,6 @@ const DashboardLayout = ({ session, onLogout }) => {
           <SidebarSectionTitle title="Work" />
           <nav className="space-y-0.5">
             <SidebarItem icon={FolderOpen} label="Projects" active={activeTab === 'Projects' || activeTab === 'ProjectDetail'} onClick={() => setActiveTab('Projects')} />
-            <SidebarItem icon={CheckSquare} label="My Tasks" active={activeTab === 'Tasks'} onClick={() => setActiveTab('Tasks')} />
             <SidebarItem icon={Users} label="Team" active={activeTab === 'Team'} onClick={() => setActiveTab('Team')} />
           </nav>
 
@@ -164,7 +150,6 @@ const DashboardLayout = ({ session, onLogout }) => {
               {activeTab === 'Dashboard'     && <DashboardOverview />}
               {activeTab === 'Projects'      && <Projects onOpenProject={(id) => { setSelectedProjectId(id); setActiveTab('ProjectDetail'); }} />}
               {activeTab === 'ProjectDetail' && <KanbanBoard projectId={selectedProjectId} onBack={() => setActiveTab('Projects')} />}
-              {activeTab === 'Tasks'         && <MyTasks searchQuery={searchQuery} />}
               {activeTab === 'Team'          && <TeamManagement />}
               {activeTab === 'Notifications' && <Notifications />}
               {activeTab === 'Gantt'         && <GanttChart />}

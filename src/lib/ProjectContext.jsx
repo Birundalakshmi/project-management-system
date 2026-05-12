@@ -35,37 +35,69 @@ export const ProjectProvider = ({ children }) => {
         { data: projectsData, error: e2 },
         { data: tasksData, error: e3 },
         { data: notificationsData, error: e4 },
-        { data: commentsData, error: e5 }
+        { data: commentsData, error: e5 },
+        { data: teamMembersData, error: e6 },
+        { data: timeLogsData, error: e7 }
       ] = await Promise.all([
         supabase.from('profiles').select('*'),
         supabase.from('projects').select('*'),
         supabase.from('tasks').select('*'),
-        supabase.from('notifications').select('*').order('created_at', { ascending: false }),
-        supabase.from('task_comments').select('*, profiles(name, avatar)')
+        supabase.from('notifications').select('*').eq('user_id', activeUser.id).order('created_at', { ascending: false }),
+        supabase.from('task_comments').select('*, profiles(name, avatar)'),
+        supabase.from('team_members').select('*'),
+        supabase.from('time_logs').select('*').order('logged_at', { ascending: false })
       ]);
 
-      const firstError = e1 || e2 || e3 || e4 || e5;
+      const firstError = e1 || e2 || e3 || e4 || e5 || e6 || e7;
       if (firstError) throw new Error(firstError.message);
 
       setMembers(profilesData || []);
-      setProjects((projectsData || []).map(p => ({ ...p, title: p.name, team: [] })));
-      
-      const tasksWithComments = (tasksData || []).map(task => ({
+
+      // Each user sees: projects they own OR projects they are a team member of
+      const myTeamProjectIds = (teamMembersData || [])
+        .filter(tm => tm.member_id === activeUser.id)
+        .map(tm => tm.project_id);
+
+      const visibleProjects = (projectsData || []).filter(p =>
+        p.owner_id === activeUser.id || myTeamProjectIds.includes(p.id)
+      );
+
+      // Attach team member ids to each project
+      const projectsWithTeam = visibleProjects.map(p => ({
+        ...p,
+        title: p.name,
+        team: (teamMembersData || []).filter(tm => tm.project_id === p.id).map(tm => tm.member_id)
+      }));
+
+      setProjects(projectsWithTeam);
+
+      // Tasks: only tasks belonging to visible projects
+      const visibleProjectIds = visibleProjects.map(p => p.id);
+      const visibleTasks = (tasksData || []).filter(t => visibleProjectIds.includes(t.project_id));
+
+      const tasksWithComments = visibleTasks.map(task => ({
         ...task,
         projectId: task.project_id,
         assigneeId: task.assignee_id,
         comments: (commentsData || []).filter(c => c.task_id === task.id).map(c => ({
-           id: c.id, text: c.text, date: c.created_at, user: c.user_id,
-           userName: c.profiles?.name, userAvatar: c.profiles?.avatar
+          id: c.id, text: c.text, date: c.created_at, user: c.user_id,
+          userName: c.profiles?.name, userAvatar: c.profiles?.avatar
         }))
       }));
       setTasks(tasksWithComments);
+
       setNotifications((notificationsData || []).map(n => ({
         id: n.id, message: n.message, date: n.created_at, read: n.read
       })));
-      // Load time logs from localStorage (no DB table needed)
-      const stored = localStorage.getItem(`timeLogs_${activeUser?.id}`);
-      if (stored) setTimeLogs(JSON.parse(stored));
+
+      setTimeLogs((timeLogsData || []).map(l => ({
+        id: l.id,
+        taskId: l.task_id,
+        userId: l.user_id,
+        hours: Number(l.hours),
+        note: l.note,
+        date: l.logged_at
+      })));
     } catch (err) {
       console.error('Error fetching data:', err);
       if (retries > 0) {
@@ -100,6 +132,11 @@ export const ProjectProvider = ({ children }) => {
     overdueTasks: tasks.filter(t => t.status !== 'done' && new Date(t.deadline) < new Date()).length,
   };
 
+  // Send notification to a specific user (by their user id)
+  const sendNotificationToUser = async (userId, message) => {
+    await supabase.from('notifications').insert({ user_id: userId, message, read: false });
+  };
+
   const addNotification = async (message) => {
     if (!activeUser) return;
     const newNotif = { user_id: activeUser.id, message, read: false };
@@ -109,28 +146,88 @@ export const ProjectProvider = ({ children }) => {
     }
   };
 
-  const addTimeLog = (log) => {
-    const newLog = { ...log, date: new Date().toISOString() };
-    setTimeLogs(prev => {
-      const updated = [newLog, ...prev];
-      localStorage.setItem(`timeLogs_${activeUser?.id}`, JSON.stringify(updated));
-      return updated;
-    });
+  const addTimeLog = async (log) => {
+    const { data, error } = await supabase.from('time_logs').insert({
+      task_id: log.taskId,
+      user_id: log.userId,
+      hours: log.hours,
+      note: log.note || null
+    }).select().single();
+    if (error) { console.error('Error adding time log:', error); return; }
+    if (data) {
+      setTimeLogs(prev => [{
+        id: data.id, taskId: data.task_id, userId: data.user_id,
+        hours: Number(data.hours), note: data.note, date: data.logged_at
+      }, ...prev]);
+    }
   };
 
-  const deleteTimeLog = (index) => {
-    setTimeLogs(prev => {
-      const updated = prev.filter((_, i) => i !== index);
-      localStorage.setItem(`timeLogs_${activeUser?.id}`, JSON.stringify(updated));
-      return updated;
-    });
+  const deleteTimeLog = async (logId) => {
+    setTimeLogs(prev => prev.filter(l => l.id !== logId));
+    await supabase.from('time_logs').delete().eq('id', logId);
   };
 
   const markNotificationsRead = useCallback(async () => {
     if (!activeUser) return;
     await supabase.from('notifications').update({ read: true }).eq('user_id', activeUser.id);
-    setNotifications(prev => prev.map(n => ({...n, read: true})));
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
   }, [activeUser]);
+
+  // Add member to a project by email — looks up their profile, adds to team_members, notifies them
+  const addMember = async (email, projectId) => {
+    if (!activeUser || !email || !projectId) return { error: 'Missing required fields.' };
+
+    // Find the profile by email
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('email', email.trim().toLowerCase())
+      .maybeSingle();
+
+    if (profileError || !profile) {
+      return { error: 'No user found with that email. They must sign up first.' };
+    }
+
+    if (profile.id === activeUser.id) {
+      return { error: 'You cannot add yourself as a team member.' };
+    }
+
+    // Check if already a member
+    const { data: existing } = await supabase
+      .from('team_members')
+      .select('id')
+      .eq('project_id', projectId)
+      .eq('member_id', profile.id)
+      .maybeSingle();
+
+    if (existing) {
+      return { error: 'This person is already a member of this project.' };
+    }
+
+    // Add to team_members
+    const { error: insertError } = await supabase
+      .from('team_members')
+      .insert({ project_id: projectId, member_id: profile.id });
+
+    if (insertError) return { error: insertError.message };
+
+    // Update local project team list
+    setProjects(prev => prev.map(p =>
+      p.id === projectId ? { ...p, team: [...(p.team || []), profile.id] } : p
+    ));
+
+    // Add member to local members list if not already there
+    setMembers(prev => prev.find(m => m.id === profile.id) ? prev : [...prev, profile]);
+
+    // Notify the added member
+    const project = projects.find(p => p.id === projectId);
+    await sendNotificationToUser(
+      profile.id,
+      `You have been added to the project "${project?.title || project?.name}" by ${activeUser.name}.`
+    );
+
+    return { success: true, member: profile };
+  };
 
   const addTask = async (task) => {
     const newTask = {
@@ -143,13 +240,17 @@ export const ProjectProvider = ({ children }) => {
       assignee_id: task.assigneeId || null
     };
     const { data, error } = await supabase.from('tasks').insert(newTask).select().single();
-    if (error) {
-       console.error("Error adding task:", error);
-       return;
-    }
-    if (data && !error) {
-      setTasks([...tasks, { ...data, comments: [], projectId: data.project_id, assigneeId: data.assignee_id }]);
-      if (data.assignee_id) addNotification(`New task "${data.title}" assigned.`);
+    if (error) { console.error('Error adding task:', error); return; }
+    if (data) {
+      setTasks(prev => [...prev, { ...data, comments: [], projectId: data.project_id, assigneeId: data.assignee_id }]);
+      if (data.assignee_id) {
+        // Notify the assignee (could be a different user)
+        await sendNotificationToUser(data.assignee_id, `New task "${data.title}" has been assigned to you.`);
+        // Also add to current user's notifications if they assigned to themselves
+        if (data.assignee_id === activeUser.id) {
+          addNotification(`New task "${data.title}" assigned.`);
+        }
+      }
     }
   };
 
@@ -163,24 +264,28 @@ export const ProjectProvider = ({ children }) => {
     if (updates.deadline !== undefined) dbUpdates.deadline = updates.deadline || null;
     if (updates.assigneeId !== undefined) dbUpdates.assignee_id = updates.assigneeId || null;
 
-    setTasks(tasks.map(t => t.id === id ? { ...t, ...updates } : t)); 
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
     await supabase.from('tasks').update(dbUpdates).eq('id', id);
   };
 
   const updateTaskStatus = async (id, newStatus) => {
-    setTasks(tasks.map(t => t.id === id ? { ...t, status: newStatus } : t)); 
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, status: newStatus } : t));
     await supabase.from('tasks').update({ status: newStatus }).eq('id', id);
-    if (newStatus === 'done') addNotification(`Task completed.`);
+    if (newStatus === 'done') addNotification('Task completed.');
   };
 
   const assignTask = async (taskId, memberId) => {
-    setTasks(tasks.map(t => t.id === taskId ? { ...t, assigneeId: memberId } : t)); 
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, assigneeId: memberId } : t));
     await supabase.from('tasks').update({ assignee_id: memberId }).eq('id', taskId);
-    addNotification(`Task reassigned.`);
+    if (memberId) {
+      const task = tasks.find(t => t.id === taskId);
+      await sendNotificationToUser(memberId, `Task "${task?.title}" has been assigned to you.`);
+    }
+    addNotification('Task reassigned.');
   };
 
   const deleteTask = async (id) => {
-    setTasks(tasks.filter(t => t.id !== id)); 
+    setTasks(prev => prev.filter(t => t.id !== id));
     await supabase.from('tasks').delete().eq('id', id);
   };
 
@@ -189,20 +294,16 @@ export const ProjectProvider = ({ children }) => {
     const { data } = await supabase.from('task_comments').insert({
       task_id: taskId,
       user_id: activeUser.id,
-      text: text
+      text
     }).select('*, profiles(name, avatar)').single();
 
     if (data) {
-      setTasks(tasks.map(t => t.id === taskId ? { 
-        ...t, 
-        comments: [...(t.comments || []), { 
-          id: data.id, 
-          user: data.user_id, 
-          text: data.text, 
-          date: data.created_at,
-          userName: data.profiles?.name,
-          userAvatar: data.profiles?.avatar
-        }] 
+      setTasks(prev => prev.map(t => t.id === taskId ? {
+        ...t,
+        comments: [...(t.comments || []), {
+          id: data.id, user: data.user_id, text: data.text, date: data.created_at,
+          userName: data.profiles?.name, userAvatar: data.profiles?.avatar
+        }]
       } : t));
     }
   };
@@ -216,46 +317,46 @@ export const ProjectProvider = ({ children }) => {
       deadline: project.deadline || null,
       owner_id: activeUser.id
     }).select().single();
-    
-    if (error) {
-      console.error("Error adding project:", error);
-      return;
-    }
-    
+
+    if (error) { console.error('Error adding project:', error); return; }
     if (data) {
-      setProjects([...projects, { ...data, title: data.name, team: [] }]);
+      setProjects(prev => [...prev, { ...data, title: data.name, team: [] }]);
     }
   };
 
   const updateProject = async (id, updates) => {
-    setProjects(projects.map(p => p.id === id ? { ...p, ...updates } : p)); 
+    setProjects(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
     const dbUpdates = { ...updates };
     if (updates.title) dbUpdates.name = updates.title;
     if (updates.deadline === '') dbUpdates.deadline = null;
     delete dbUpdates.title;
     delete dbUpdates.team;
-    
     await supabase.from('projects').update(dbUpdates).eq('id', id);
   };
 
   const deleteProject = async (id) => {
-    setProjects(projects.filter(p => p.id !== id));
-    setTasks(tasks.filter(t => t.projectId !== id));
+    setProjects(prev => prev.filter(p => p.id !== id));
+    setTasks(prev => prev.filter(t => t.projectId !== id));
     await supabase.from('projects').delete().eq('id', id);
   };
 
-  const addMember = async (member) => {
-    // Members are added via Supabase Auth signup; this is intentionally a no-op
+  const removeMember = async (memberId, projectId) => {
+    if (projectId) {
+      // Remove from specific project
+      await supabase.from('team_members').delete().eq('project_id', projectId).eq('member_id', memberId);
+      setProjects(prev => prev.map(p =>
+        p.id === projectId ? { ...p, team: p.team.filter(id => id !== memberId) } : p
+      ));
+    } else {
+      // Remove from profiles entirely (admin action)
+      setMembers(prev => prev.filter(m => m.id !== memberId));
+      await supabase.from('profiles').delete().eq('id', memberId);
+    }
   };
 
   const updateMemberRole = async (id, newRole) => {
-    setMembers(members.map(m => m.id === id ? { ...m, role: newRole } : m));
+    setMembers(prev => prev.map(m => m.id === id ? { ...m, role: newRole } : m));
     await supabase.from('profiles').update({ role: newRole }).eq('id', id);
-  };
-
-  const removeMember = async (id) => {
-    setMembers(members.filter(m => m.id !== id));
-    await supabase.from('profiles').delete().eq('id', id);
   };
 
   return (

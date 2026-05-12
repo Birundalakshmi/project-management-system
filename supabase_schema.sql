@@ -81,7 +81,30 @@ CREATE TABLE public.task_comments (
 ALTER TABLE public.task_comments ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Enable all access for authenticated users" ON public.task_comments FOR ALL TO authenticated USING (true);
 
--- 5. Create Notifications Table
+-- 5. Create Team Members Table (links profiles to projects)
+CREATE TABLE public.team_members (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE,
+  member_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  added_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  UNIQUE(project_id, member_id)
+);
+
+ALTER TABLE public.team_members ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Enable all access for authenticated users" ON public.team_members FOR ALL TO authenticated USING (true);
+
+-- 7. Create Time Logs Table
+CREATE TABLE public.time_logs (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  task_id UUID REFERENCES public.tasks(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  hours NUMERIC NOT NULL,
+  note TEXT,
+  logged_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+ALTER TABLE public.time_logs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Enable all access for authenticated users" ON public.time_logs FOR ALL TO authenticated USING (true);
 CREATE TABLE public.notifications (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   message TEXT NOT NULL,

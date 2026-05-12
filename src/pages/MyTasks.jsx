@@ -49,7 +49,7 @@ const MyTasks = ({ searchQuery: externalSearch = '' }) => {
           <h2 className="text-2xl font-bold text-textColor-main flex items-center gap-2">
             <CheckSquare size={24} className="text-primary" /> My Tasks
           </h2>
-          <p className="text-textColor-muted mt-1">Cross-project view of everything assigned to you.</p>
+          <p className="text-textColor-muted mt-1">Tasks assigned to <span className="font-semibold text-primary">{activeUser.name}</span> across all projects.</p>
         </div>
         <div className="flex gap-4 items-center">
             <div className="text-right">
