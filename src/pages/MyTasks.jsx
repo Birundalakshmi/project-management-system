@@ -3,14 +3,32 @@ import { useProjectData } from '../lib/ProjectContext';
 import { CheckCircle2, Clock, Calendar, CheckSquare, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const MyTasks = () => {
+const getDeadlineStyle = (deadline, status) => {
+  if (!deadline || status === 'done') return 'text-textColor-light';
+  const today = new Date(); today.setHours(0,0,0,0);
+  const due = new Date(deadline); due.setHours(0,0,0,0);
+  if (due < today) return 'text-rose-500 font-bold';
+  if (due.getTime() === today.getTime()) return 'text-amber-500 font-bold';
+  return 'text-textColor-light';
+};
+
+const MyTasks = ({ searchQuery: externalSearch = '' }) => {
   const { tasks, projects, activeUser, updateTaskStatus } = useProjectData();
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(externalSearch);
+  const [priorityFilter, setPriorityFilter] = useState('All');
+
+  React.useEffect(() => {
+    if (externalSearch) setSearch(externalSearch);
+  }, [externalSearch]);
 
   if (!activeUser) return <div className="p-8">Please log in to view tasks.</div>;
 
   const myTasks = tasks.filter(t => t.assigneeId === activeUser.id);
-  const filteredTasks = myTasks.filter(t => t.title.toLowerCase().includes(search.toLowerCase()));
+  const filteredTasks = myTasks.filter(t => {
+    const matchesSearch = t.title.toLowerCase().includes(search.toLowerCase());
+    const matchesPriority = priorityFilter === 'All' || t.priority === priorityFilter;
+    return matchesSearch && matchesPriority;
+  });
 
   const pendingTasks = filteredTasks.filter(t => t.status !== 'done');
   const completedTasks = filteredTasks.filter(t => t.status === 'done');
@@ -54,8 +72,18 @@ const MyTasks = () => {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search your tasks..." 
-            className="bg-transparent border-none focus:outline-none text-sm text-textColor-main w-full placeholder:text-textColor-light font-medium"
+            className="bg-transparent border-none focus:outline-none text-sm text-textColor-main flex-1 placeholder:text-textColor-light font-medium"
           />
+          <select
+            value={priorityFilter}
+            onChange={e => setPriorityFilter(e.target.value)}
+            className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-semibold focus:outline-none focus:border-primary/50"
+          >
+            <option value="All">All Priority</option>
+            <option value="High">High</option>
+            <option value="Medium">Medium</option>
+            <option value="Low">Low</option>
+          </select>
         </div>
 
         <div className="flex-1 p-6 space-y-8 overflow-y-auto pr-4 scrollbar-hide">
@@ -100,7 +128,7 @@ const MyTasks = () => {
                                         {task.priority || 'Low'}
                                     </span>
                                     {task.deadline && (
-                                        <span className="text-[10px] font-semibold text-textColor-light flex items-center gap-1">
+                                        <span className={`text-[10px] font-semibold flex items-center gap-1 ${getDeadlineStyle(task.deadline, task.status)}`}>
                                             <Calendar size={10}/> {new Date(task.deadline).toLocaleDateString()}
                                         </span>
                                     )}

@@ -17,24 +17,20 @@ function App() {
           id: session.user.id,
           name: session.user.user_metadata?.full_name || session.user.email.split('@')[0],
           email: session.user.email,
-          role: 'Admin',
-          avatar: session.user.user_metadata?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${session.user.id}`
+          role: 'Admin'
         });
       }
       setLoading(false);
     });
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       if (session?.user) {
         setActiveUser({
           id: session.user.id,
           name: session.user.user_metadata?.full_name || session.user.email.split('@')[0],
           email: session.user.email,
-          role: 'Admin',
-          avatar: session.user.user_metadata?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${session.user.id}`
+          role: 'Admin'
         });
       } else {
         setActiveUser(null);
@@ -52,9 +48,7 @@ function App() {
     );
   }
 
-  if (!session) {
-    return <Auth onAuthSuccess={() => {}} />;
-  }
+  if (!session) return <Auth />;
 
   return <DashboardLayout session={session} onLogout={() => supabase.auth.signOut()} />;
 }

@@ -1,15 +1,26 @@
 import React, { useState } from 'react';
 import { useProjectData } from '../lib/ProjectContext';
-import { Plus, MoreVertical, FolderOpen, Calendar, Edit2, Trash2, X } from 'lucide-react';
+import { Plus, FolderOpen, Calendar, Edit2, Trash2, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 const ProjectModal = ({ isOpen, onClose, project = null }) => {
   const { addProject, updateProject, members } = useProjectData();
-  const [title, setTitle] = useState(project?.title || '');
-  const [description, setDescription] = useState(project?.description || '');
-  const [deadline, setDeadline] = useState(project?.deadline || '');
-  const [status, setStatus] = useState(project?.status || 'Active');
-  const [selectedTeam, setSelectedTeam] = useState(project?.team || []);
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [deadline, setDeadline] = useState('');
+  const [status, setStatus] = useState('Active');
+  const [selectedTeam, setSelectedTeam] = useState([]);
+
+  React.useEffect(() => {
+    if (isOpen) {
+      setTitle(project?.title || '');
+      setDescription(project?.description || '');
+      setDeadline(project?.deadline || '');
+      setStatus(project?.status || 'Active');
+      setSelectedTeam(project?.team || []);
+    }
+  }, [isOpen, project]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -94,20 +105,19 @@ const ProjectModal = ({ isOpen, onClose, project = null }) => {
   );
 };
 
+const STATUS_FILTERS = ['All', 'Active', 'On Hold', 'Completed'];
+
 const Projects = ({ onOpenProject }) => {
   const { projects, deleteProject, tasks, members } = useProjectData();
   const [modalOpen, setModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState(null);
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [confirmDelete, setConfirmDelete] = useState(null);
 
-  const openEdit = (p) => {
-    setEditingProject(p);
-    setModalOpen(true);
-  };
+  const openEdit = (p) => { setEditingProject(p); setModalOpen(true); };
+  const openCreate = () => { setEditingProject(null); setModalOpen(true); };
 
-  const openCreate = () => {
-    setEditingProject(null);
-    setModalOpen(true);
-  };
+  const filteredProjects = statusFilter === 'All' ? projects : projects.filter(p => p.status === statusFilter);
 
   return (
     <div className="p-8 animate-in space-y-6">
@@ -123,8 +133,27 @@ const Projects = ({ onOpenProject }) => {
         </button>
       </div>
 
+      <div className="flex gap-2">
+        {STATUS_FILTERS.map(f => (
+          <button
+            key={f}
+            onClick={() => setStatusFilter(f)}
+            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all border ${
+              statusFilter === f
+                ? 'bg-primary text-white border-primary shadow-sm'
+                : 'bg-surface text-textColor-muted border-slate-200 hover:border-slate-300'
+            }`}
+          >
+            {f}
+          </button>
+        ))}
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {projects.map((p, i) => {
+        {filteredProjects.length === 0 && (
+          <div className="col-span-3 text-center py-16 text-textColor-muted">No projects found.</div>
+        )}
+        {filteredProjects.map((p, i) => {
            const pTasks = tasks.filter(t => t.projectId === p.id);
            const completed = pTasks.filter(t => t.status === 'done').length;
            const progress = pTasks.length ? Math.floor((completed / pTasks.length) * 100) : 0;
@@ -136,7 +165,7 @@ const Projects = ({ onOpenProject }) => {
                  `}>{p.status}</div>
                  <div className="flex items-center gap-2">
                     <button onClick={() => openEdit(p)} className="p-1.5 text-textColor-muted hover:text-primary hover:bg-slate-100 rounded transition-colors"><Edit2 size={16} /></button>
-                    <button onClick={() => deleteProject(p.id)} className="p-1.5 text-textColor-muted hover:text-rose-500 hover:bg-rose-50 rounded transition-colors"><Trash2 size={16} /></button>
+                    <button onClick={() => setConfirmDelete(p)} className="p-1.5 text-textColor-muted hover:text-rose-500 hover:bg-rose-50 rounded transition-colors"><Trash2 size={16} /></button>
                  </div>
                </div>
                
@@ -174,6 +203,13 @@ const Projects = ({ onOpenProject }) => {
       <AnimatePresence>
         <ProjectModal isOpen={modalOpen} onClose={() => setModalOpen(false)} project={editingProject} />
       </AnimatePresence>
+      <ConfirmDialog
+        isOpen={!!confirmDelete}
+        onClose={() => setConfirmDelete(null)}
+        onConfirm={() => deleteProject(confirmDelete.id)}
+        title="Delete Project"
+        message={`Are you sure you want to delete "${confirmDelete?.title}"? All tasks inside will also be deleted.`}
+      />
     </div>
   );
 };

@@ -3,6 +3,16 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, X, Calendar, AlignLeft, MessageSquare, ArrowLeft, Trash2 } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { useProjectData } from '../lib/ProjectContext';
+import ConfirmDialog from './ConfirmDialog';
+
+const getDeadlineStyle = (deadline, status) => {
+  if (!deadline || status === 'done') return { cls: 'text-textColor-light', label: null };
+  const today = new Date(); today.setHours(0,0,0,0);
+  const due = new Date(deadline); due.setHours(0,0,0,0);
+  if (due < today) return { cls: 'text-rose-500 font-bold', label: 'Overdue' };
+  if (due.getTime() === today.getTime()) return { cls: 'text-amber-500 font-bold', label: 'Due today' };
+  return { cls: 'text-textColor-light', label: null };
+};
 
 export const TaskModal = ({ isOpen, onClose, onAdd, projectId = null }) => {
   const { projects, activeUser } = useProjectData();
@@ -34,6 +44,7 @@ export const TaskModal = ({ isOpen, onClose, onAdd, projectId = null }) => {
     setDescription('');
     setDeadline('');
     setPriority('Medium');
+    setSelectedProjectId(projectId || (projects.length > 0 ? projects[0].id : ''));
     onClose();
   };
 
@@ -114,21 +125,21 @@ export const TaskModal = ({ isOpen, onClose, onAdd, projectId = null }) => {
   );
 };
 
-const AssigneeAvatar = ({ assigneeId, onAssign }) => {
+const AssigneeAvatar = ({ assigneeId }) => {
   const { members } = useProjectData();
   const member = members.find(m => m.id === assigneeId);
-  
+
   if (!member) {
     return (
-      <div onClick={onAssign} className="w-6 h-6 rounded-full bg-white border border-slate-300 border-dashed flex items-center justify-center text-[10px] text-textColor-muted hover:border-primary hover:text-primary transition-colors cursor-pointer shadow-sm relative group" title="Assign">
-         <Plus size={12} />
+      <div className="w-6 h-6 rounded-full bg-white border border-slate-300 border-dashed flex items-center justify-center text-[10px] text-textColor-muted shadow-sm" title="Unassigned">
+        <Plus size={12} />
       </div>
     );
   }
 
   return (
-    <div onClick={onAssign} className="w-6 h-6 rounded-full bg-slate-100 border border-white overflow-hidden cursor-pointer hover:ring-2 hover:ring-primary/50 shadow-sm relative" title={member.name}>
-      <img src={member.avatar} alt={member.name} className="w-full h-full object-cover" />
+    <div className="w-6 h-6 rounded-full bg-primary-bg border border-primary/20 flex items-center justify-center text-[10px] font-bold text-primary shadow-sm" title={member.name}>
+      {member.name?.charAt(0).toUpperCase()}
     </div>
   );
 };
@@ -137,6 +148,7 @@ const TaskDetailModal = ({ task, isOpen, onClose }) => {
   const { members, updateTask, assignTask, addTaskComment, updateTaskStatus, deleteTask } = useProjectData();
   const [commentText, setCommentText] = useState('');
   const [showAssignDropdown, setShowAssignDropdown] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   if (!isOpen || !task) return null;
 
@@ -165,7 +177,7 @@ const TaskDetailModal = ({ task, isOpen, onClose }) => {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={handleDelete} className="w-8 h-8 rounded-full border border-slate-200 flex items-center justify-center text-textColor-muted hover:text-rose-500 hover:bg-rose-50 hover:border-rose-200 transition-colors">
+          <button onClick={() => setConfirmDelete(true)} className="w-8 h-8 rounded-full border border-slate-200 flex items-center justify-center text-textColor-muted hover:text-rose-500 hover:bg-rose-50 hover:border-rose-200 transition-colors">
             <Trash2 size={14} />
           </button>
           <button onClick={onClose} className="w-8 h-8 rounded-full border border-slate-200 flex items-center justify-center text-textColor-muted hover:text-textColor-main hover:bg-slate-50 transition-colors">
@@ -185,7 +197,7 @@ const TaskDetailModal = ({ task, isOpen, onClose }) => {
                   onClick={() => setShowAssignDropdown(!showAssignDropdown)}
                 >
                   {assignee ? (
-                    <><img src={assignee.avatar} className="w-5 h-5 rounded-full object-cover" /> <span className="font-semibold text-xs">{assignee.name}</span></>
+                    <><div className="w-5 h-5 rounded-full bg-primary-bg flex items-center justify-center text-[10px] font-bold text-primary">{assignee.name?.charAt(0).toUpperCase()}</div> <span className="font-semibold text-xs">{assignee.name}</span></>
                   ) : (
                     <span className="text-xs text-textColor-muted">Unassigned</span>
                   )}
@@ -195,7 +207,7 @@ const TaskDetailModal = ({ task, isOpen, onClose }) => {
                     <div className="px-3 py-2 hover:bg-slate-50 cursor-pointer text-xs" onClick={() => { assignTask(task.id, null); setShowAssignDropdown(false); }}>Unassigned</div>
                     {members.map(m => (
                       <div key={m.id} className="flex items-center gap-2 px-3 py-2 hover:bg-slate-50 cursor-pointer" onClick={() => { assignTask(task.id, m.id); setShowAssignDropdown(false); }}>
-                        <img src={m.avatar} className="w-5 h-5 rounded-full object-cover" />
+                        <div className="w-5 h-5 rounded-full bg-primary-bg flex items-center justify-center text-[10px] font-bold text-primary">{m.name?.charAt(0).toUpperCase()}</div>
                         <span className="text-xs font-semibold">{m.name}</span>
                       </div>
                     ))}
@@ -264,8 +276,8 @@ const TaskDetailModal = ({ task, isOpen, onClose }) => {
                  const author = members.find(m => m.id === c.user);
                  return (
                   <div key={c.id} className="flex gap-3">
-                    <div className="w-8 h-8 rounded-full bg-slate-100 overflow-hidden shrink-0 shadow-sm border border-slate-200">
-                      <img src={author?.avatar} alt={author?.name} className="w-full h-full object-cover" />
+                    <div className="w-8 h-8 rounded-full bg-primary-bg border border-primary/20 flex items-center justify-center text-sm font-bold text-primary shrink-0">
+                      {(author?.name || '?').charAt(0).toUpperCase()}
                     </div>
                     <div className="flex-1 bg-slate-50 border border-slate-100 p-3 rounded-lg rounded-tl-none">
                         <div className="flex items-center justify-between mb-1">
@@ -282,6 +294,13 @@ const TaskDetailModal = ({ task, isOpen, onClose }) => {
             </div>
         </div>
       </div>
+      <ConfirmDialog
+        isOpen={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        onConfirm={handleDelete}
+        title="Delete Task"
+        message={`Are you sure you want to delete "${task?.title}"? This cannot be undone.`}
+      />
     </div>
   );
 };
@@ -334,11 +353,15 @@ const Column = ({ title, columnId, tasks, onAddTask, onTaskClick }) => {
                         <AssigneeAvatar assigneeId={task.assigneeId} />
                       </div>
                       <div className="flex items-center gap-3 text-textColor-muted">
-                        {task.deadline && (
-                           <div className="flex items-center gap-1.5 text-[10px] font-semibold text-textColor-light">
-                             <Calendar size={12} /> {new Date(task.deadline).toLocaleDateString(undefined, {month: 'short', day: 'numeric'})}
-                           </div>
-                        )}
+                        {task.deadline && (() => {
+                          const { cls, label } = getDeadlineStyle(task.deadline, task.status);
+                          return (
+                            <div className={`flex items-center gap-1.5 text-[10px] font-semibold ${cls}`}>
+                              <Calendar size={12} />
+                              {label ? label : new Date(task.deadline).toLocaleDateString(undefined, {month: 'short', day: 'numeric'})}
+                            </div>
+                          );
+                        })()}
                         <div className="flex items-center gap-1.5 text-xs font-semibold">
                           <MessageSquare size={14} /> {task.comments?.length || 0}
                         </div>

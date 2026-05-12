@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import { supabase } from './supabase';
 
 const ProjectContext = createContext();
@@ -11,10 +11,13 @@ export const ProjectProvider = ({ children }) => {
   const [projects, setProjects] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [notifications, setNotifications] = useState([]);
+  const [timeLogs, setTimeLogs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(null);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async (retries = 2) => {
     try {
+      setFetchError(null);
       if (activeUser) {
         const { data: existingProfile } = await supabase.from('profiles').select('id').eq('id', activeUser.id).maybeSingle();
         if (!existingProfile) {
@@ -22,18 +25,17 @@ export const ProjectProvider = ({ children }) => {
             id: activeUser.id,
             name: activeUser.name,
             email: activeUser.email,
-            avatar: activeUser.avatar,
             role: 'Admin'
           });
         }
       }
 
       const [
-        { data: profilesData },
-        { data: projectsData },
-        { data: tasksData },
-        { data: notificationsData },
-        { data: commentsData }
+        { data: profilesData, error: e1 },
+        { data: projectsData, error: e2 },
+        { data: tasksData, error: e3 },
+        { data: notificationsData, error: e4 },
+        { data: commentsData, error: e5 }
       ] = await Promise.all([
         supabase.from('profiles').select('*'),
         supabase.from('projects').select('*'),
@@ -42,41 +44,39 @@ export const ProjectProvider = ({ children }) => {
         supabase.from('task_comments').select('*, profiles(name, avatar)')
       ]);
 
+      const firstError = e1 || e2 || e3 || e4 || e5;
+      if (firstError) throw new Error(firstError.message);
+
       setMembers(profilesData || []);
-      const projectsWithAdapter = (projectsData || []).map(p => ({
-        ...p,
-        title: p.name,
-        team: [] // Add empty team array to prevent frontend crash
-      }));
-      setProjects(projectsWithAdapter);
+      setProjects((projectsData || []).map(p => ({ ...p, title: p.name, team: [] })));
       
       const tasksWithComments = (tasksData || []).map(task => ({
         ...task,
         projectId: task.project_id,
         assigneeId: task.assignee_id,
         comments: (commentsData || []).filter(c => c.task_id === task.id).map(c => ({
-           id: c.id,
-           text: c.text,
-           date: c.created_at,
-           user: c.user_id,
-           userName: c.profiles?.name,
-           userAvatar: c.profiles?.avatar
+           id: c.id, text: c.text, date: c.created_at, user: c.user_id,
+           userName: c.profiles?.name, userAvatar: c.profiles?.avatar
         }))
       }));
       setTasks(tasksWithComments);
-      
       setNotifications((notificationsData || []).map(n => ({
-        id: n.id,
-        message: n.message,
-        date: n.created_at,
-        read: n.read
+        id: n.id, message: n.message, date: n.created_at, read: n.read
       })));
+      // Load time logs from localStorage (no DB table needed)
+      const stored = localStorage.getItem(`timeLogs_${activeUser?.id}`);
+      if (stored) setTimeLogs(JSON.parse(stored));
     } catch (err) {
       console.error('Error fetching data:', err);
+      if (retries > 0) {
+        setTimeout(() => fetchData(retries - 1), 2000);
+      } else {
+        setFetchError(err.message || 'Failed to connect to the server. Check your internet connection.');
+      }
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeUser]);
 
   useEffect(() => {
     if (activeUser) {
@@ -87,8 +87,10 @@ export const ProjectProvider = ({ children }) => {
       setProjects([]);
       setTasks([]);
       setNotifications([]);
+      setTimeLogs([]);
+      setLoading(false);
     }
-  }, [activeUser]);
+  }, [activeUser, fetchData]);
 
   const stats = {
     totalProjects: projects.length,
@@ -107,11 +109,28 @@ export const ProjectProvider = ({ children }) => {
     }
   };
 
-  const markNotificationsRead = async () => {
+  const addTimeLog = (log) => {
+    const newLog = { ...log, date: new Date().toISOString() };
+    setTimeLogs(prev => {
+      const updated = [newLog, ...prev];
+      localStorage.setItem(`timeLogs_${activeUser?.id}`, JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const deleteTimeLog = (index) => {
+    setTimeLogs(prev => {
+      const updated = prev.filter((_, i) => i !== index);
+      localStorage.setItem(`timeLogs_${activeUser?.id}`, JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const markNotificationsRead = useCallback(async () => {
     if (!activeUser) return;
     await supabase.from('notifications').update({ read: true }).eq('user_id', activeUser.id);
     setNotifications(prev => prev.map(n => ({...n, read: true})));
-  };
+  }, [activeUser]);
 
   const addTask = async (task) => {
     const newTask = {
@@ -126,7 +145,6 @@ export const ProjectProvider = ({ children }) => {
     const { data, error } = await supabase.from('tasks').insert(newTask).select().single();
     if (error) {
        console.error("Error adding task:", error);
-       alert("Database Error (Task): " + error.message + " | Details: " + JSON.stringify(error));
        return;
     }
     if (data && !error) {
@@ -201,7 +219,6 @@ export const ProjectProvider = ({ children }) => {
     
     if (error) {
       console.error("Error adding project:", error);
-      alert("Database Error (Project): " + error.message + " | Details: " + JSON.stringify(error));
       return;
     }
     
@@ -223,12 +240,12 @@ export const ProjectProvider = ({ children }) => {
 
   const deleteProject = async (id) => {
     setProjects(projects.filter(p => p.id !== id));
-    setTasks(tasks.filter(t => t.project_id !== id && t.projectId !== id)); 
+    setTasks(tasks.filter(t => t.projectId !== id));
     await supabase.from('projects').delete().eq('id', id);
   };
 
   const addMember = async (member) => {
-    alert('To add a new team member, they must sign up for an account via the Login/Signup page first. Supabase Auth safely handles user creation.');
+    // Members are added via Supabase Auth signup; this is intentionally a no-op
   };
 
   const updateMemberRole = async (id, newRole) => {
@@ -248,8 +265,10 @@ export const ProjectProvider = ({ children }) => {
       members, addMember, updateMemberRole, removeMember,
       projects, addProject, updateProject, deleteProject,
       notifications, markNotificationsRead,
+      timeLogs, addTimeLog, deleteTimeLog,
       stats,
-      loading
+      loading, fetchError,
+      retryFetch: () => { setLoading(true); fetchData(); }
     }}>
       {children}
     </ProjectContext.Provider>

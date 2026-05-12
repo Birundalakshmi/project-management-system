@@ -22,7 +22,9 @@ const MemberTasksModal = ({ isOpen, onClose, member }) => {
           <X size={20} />
         </button>
         <div className="flex items-center gap-4 mb-6">
-          <img src={member.avatar} alt="avatar" className="w-12 h-12 rounded-full border border-slate-200" />
+          <div className="w-10 h-10 rounded-full border border-slate-200 bg-primary-bg flex items-center justify-center text-primary font-bold shrink-0">
+          {member.name?.charAt(0).toUpperCase()}
+        </div>
           <div>
             <h3 className="text-xl font-bold text-textColor-main">{member.name}'s Tasks</h3>
             <p className="text-sm text-textColor-muted">{memberTasks.length} Assigned Tasks</p>
@@ -65,12 +67,8 @@ const MemberCard = ({ member, onRemove, onEditRole, onViewTasks }) => (
     className="card flex items-center justify-between p-4 card-hover border border-slate-200"
   >
     <div className="flex items-center gap-4">
-      <div className="w-12 h-12 rounded-full border border-slate-200 shrink-0">
-        <img 
-          src={member.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${member.id}`} 
-          alt={member.name} 
-          className="w-full h-full rounded-full bg-slate-100 object-cover"
-        />
+      <div className="w-10 h-10 rounded-full border border-slate-200 bg-primary-bg flex items-center justify-center text-primary font-bold text-sm shrink-0">
+        {member.name?.charAt(0).toUpperCase()}
       </div>
       <div>
         <h4 className="font-bold text-textColor-main group-hover:text-primary transition-colors">{member.name}</h4>

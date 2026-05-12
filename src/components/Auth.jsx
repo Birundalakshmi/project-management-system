@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 import { useProjectData } from '../lib/ProjectContext';
 
-const Auth = ({ onAuthSuccess }) => {
+const Auth = () => {
   const { setActiveUser, members } = useProjectData();
   const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -13,6 +13,7 @@ const Auth = ({ onAuthSuccess }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [resetSent, setResetSent] = useState(false);
 
   const handleAuth = async (e) => {
     e.preventDefault();
@@ -35,8 +36,7 @@ const Auth = ({ onAuthSuccess }) => {
           password,
           options: {
             data: {
-              full_name: name.trim(),
-              avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${name.replace(' ', '')}`
+              full_name: name.trim()
             }
           }
         });
@@ -117,7 +117,20 @@ const Auth = ({ onAuthSuccess }) => {
             <div className="space-y-1">
               <div className="flex justify-between items-center ml-1">
                 <label className="text-xs font-bold text-textColor-muted uppercase tracking-widest">Password</label>
-                {isLogin && <button type="button" className="text-xs text-primary font-semibold hover:underline">Forgot password?</button>}
+                {isLogin && (
+                <button
+                  type="button"
+                  className="text-xs text-primary font-semibold hover:underline"
+                  onClick={async () => {
+                    if (!email.trim()) { setError('Enter your email first.'); return; }
+                    const { error } = await supabase.auth.resetPasswordForEmail(email.trim());
+                    if (error) setError(error.message);
+                    else setResetSent(true);
+                  }}
+                >
+                  Forgot password?
+                </button>
+              )}
               </div>
               <div className="relative">
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-textColor-light" size={18} />
@@ -132,6 +145,18 @@ const Auth = ({ onAuthSuccess }) => {
               </div>
             </div>
 
+            <AnimatePresence>
+              {resetSent && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="bg-emerald-50 border border-emerald-200 text-emerald-600 px-4 py-3 rounded-xl text-sm font-medium"
+                >
+                  Password reset email sent! Check your inbox.
+                </motion.div>
+              )}
+            </AnimatePresence>
             <AnimatePresence>
               {error && (
                 <motion.div 

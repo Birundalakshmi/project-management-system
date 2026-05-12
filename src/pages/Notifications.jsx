@@ -7,12 +7,11 @@ const Notifications = () => {
   const { notifications, markNotificationsRead } = useProjectData();
 
   useEffect(() => {
-    // Automatically mark as read when viewing the page after a brief delay
     const timer = setTimeout(() => {
       markNotificationsRead();
     }, 2000);
     return () => clearTimeout(timer);
-  }, []);
+  }, [markNotificationsRead]);
 
   const formatDate = (dateStr) => {
     const d = new Date(dateStr);
